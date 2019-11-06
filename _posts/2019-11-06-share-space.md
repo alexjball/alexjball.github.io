@@ -48,12 +48,20 @@ With this approach, latency is determined by:
 2. App client: The time to download and push a segment to the video element
 3. Browser: The time to process and display a segment in the video element's buffer
 
-Traditionally, the entire segment is encoded before being published, and browsers maintain a buffer of multiple segments to ensure smooth playback. With 5 second segments, this implies a latency of > 10 seconds. Modern solutions like [Low-latency HLS](https://www.theoplayer.com/blog/low-latency-hls-lhls) address this by using HTTP chunk transfer to stream the segments as they're being encoded, allowing < 5 second latencies.
+Traditionally, the entire segment is encoded before being published, and browsers maintain a buffer of multiple segments to ensure smooth playback. Segments are 2-6 seconds, so this implies a latency of at least 10 seconds. 
 
-I implemented that idea using WebSockets instead of HTTP chunk transfer. WebSockets provide a stream-oriented data channel, which makes it simple to pipe a video stream to clients.
+Optimizations like [low-latency HLS](https://www.theoplayer.com/blog/low-latency-hls-lhls) use HTTP [chunked transfer encoding](https://en.wikipedia.org/wiki/Chunked_transfer_encoding) to stream segments as they're encoded, allowing 2-5 second latencies. This reduces the latency of (1) and (2) to the propagation time of the CDN.
+
+Since Share Space scales by room, each stream serves a max of 10-20 users, so stream scalability was not a requirement. In that case it's much simpler to stream video over a WebSocket. Furthermore, the room server need only serve the latest segment as a live stream, so the encoder can write directly to the room server rather than a CDN. 
+
+FFMpeg was used to capture the virtual desktop and encode the video stream. A Node server accepts the video stream from FFMpeg and multiplexes it between clients. It also manages connections to VNC controls and authenticates all connections using the room code.
+
+The client feeds the video stream directly into a MediaSource instance using the `video/webm; codecs="vp9,vorbis"` mimeType. According to the [spec](https://w3c.github.io/media-source/webm-byte-stream-format.html), MediaSource expects an initialization segment followed by media segments. Each Cluster element in the WebM stream is a media segment, and everything before the first cluster is the initialization segment. 
+
+So in order to multiplex the FFMpeg stream, the server needed to serve the initialization segment to each client before starting to stream the latest media segment. I customized the `webm_chunk` muxer to write the video stream to the primary FFMpeg output and segment boundary positions to a secondary output, both of which were accepted by the room server. The room server then used this information to split the stream into segments and multiplex the stream between all clients.
 
 ## Conclusion
 
 MediaSource and WebSockets provide a simple mechanism to serve low-latency video to web clients.
 
-And I'd love to hear your recommendations for WebRTC server components!
+I'd love to hear your recommendations for WebRTC server components!
