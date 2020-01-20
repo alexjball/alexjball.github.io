@@ -1,0 +1,12 @@
+#!/bin/bash
+
+cd $(dirname $0)
+
+GUEST_IP=$( \
+    sudo ifconfig eth1 | \
+    grep 'inet' | \
+    cut -d: -f2 | \
+    awk '{ print $2}' \
+)
+
+bundle exec jekyll serve --host $GUEST_IP
